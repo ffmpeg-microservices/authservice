@@ -42,8 +42,8 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           passphrase: ${{ secrets.SSH_PASSPHRASE }}
           script: |
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/auth-service:latest
-            docker service update \
+            sudo docker pull ${{ secrets.DOCKERHUB_USERNAME }}/auth-service:latest
+            sudo docker service update \
               --image ${{ secrets.DOCKERHUB_USERNAME }}/auth-service:latest \
               --with-registry-auth \
               app_auth-service
