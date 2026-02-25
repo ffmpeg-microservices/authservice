@@ -15,6 +15,8 @@ import feign.FeignException;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.boot.security.autoconfigure.SecurityProperties.User;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -29,127 +31,137 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class AuthService {
 
-    private final AuthRepository authRepository;
-    private final AuthenticationManager authenticationManager;
-    private final JwtUtil jwtUtil;
-    private final PasswordEncoder passwordEncoder;
-    private final UserClient userClient;
+        private final AuthRepository authRepository;
+        private final AuthenticationManager authenticationManager;
+        private final JwtUtil jwtUtil;
+        private final PasswordEncoder passwordEncoder;
+        private final UserClient userClient;
 
-    // ========================= LOGIN =========================
+        // ========================= LOGIN =========================
 
-    public LoginResponse login(LoginRequest loginRequest) {
+        public LoginResponse login(LoginRequest loginRequest) {
 
-        log.info("Login attempt for username={}", loginRequest.username());
+                log.info("Login attempt for username={}", loginRequest.username());
 
-        try {
+                try {
 
-            Authentication authentication =
-                    authenticationManager.authenticate(
-                            new UsernamePasswordAuthenticationToken(
-                                    loginRequest.username(),
-                                    loginRequest.password()
-                            )
-                    );
+                        Authentication authentication = authenticationManager.authenticate(
+                                        new UsernamePasswordAuthenticationToken(
+                                                        loginRequest.username(),
+                                                        loginRequest.password()));
 
-            Auth user = (Auth) authentication.getPrincipal();
+                        Auth user = (Auth) authentication.getPrincipal();
 
-            String token = jwtUtil.generateToken(user);
+                        String token = jwtUtil.generateToken(user);
 
-            log.info("Login successful. userId={}", user.getUser_id());
+                        log.info("Login successful. userId={}", user.getUser_id());
 
-            return new LoginResponse(
-                    token,
-                    user.getUser_id().toString()
-            );
+                        ResponseEntity<UserDto> response = userClient.getUser(user.getUser_id().toString());
 
-        } catch (BadCredentialsException ex) {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                                log.error("User-service failed to fetch user details. status={}",
+                                                response.getStatusCode());
 
-            log.warn("Invalid login attempt for username={}",
-                    loginRequest.username());
+                                throw new AuthenticationFailedException(
+                                                "User service failed to fetch user details");
+                        }
 
-            throw new AuthenticationFailedException("Invalid username or password");
+                        return new LoginResponse(
+                                        token,
+                                        user.getUser_id().toString(), response.getBody());
 
-        } catch (Exception ex) {
+                } catch (BadCredentialsException ex) {
 
-            log.error("Unexpected authentication error for username={}",
-                    loginRequest.username(), ex);
+                        log.warn("Invalid login attempt for username={}",
+                                        loginRequest.username());
 
-            throw new AuthenticationFailedException("Authentication failed");
-        }
-    }
+                        throw new AuthenticationFailedException("Invalid username or password");
 
-    // ========================= SIGNUP =========================
+                } catch (FeignException ex) {
 
-    @Transactional
-    public LoginResponse signup(SignupRequest signupRequest) {
+                        log.error("User-service communication error during signup.",
+                                        ex);
 
-        log.info("Signup attempt for username={}, email={}",
-                signupRequest.username(),
-                signupRequest.email());
+                        throw new UserCreationException(
+                                        "User service communication failed", ex);
 
-        if (authRepository.findByUsername(signupRequest.username()).isPresent()) {
+                } catch (Exception ex) {
 
-            log.warn("Signup failed. Username already exists: {}",
-                    signupRequest.username());
+                        log.error("Unexpected authentication error for username={}",
+                                        loginRequest.username(), ex);
 
-            throw new UserAlreadyExistsException("Username already exists");
+                        throw new AuthenticationFailedException("Authentication failed");
+                }
         }
 
-        try {
+        // ========================= SIGNUP =========================
 
-            Auth auth = new Auth(
-                    signupRequest.username(),
-                    passwordEncoder.encode(signupRequest.password())
-            );
+        @Transactional
+        public LoginResponse signup(SignupRequest signupRequest) {
 
-            Auth savedAuth = authRepository.save(auth);
+                log.info("Signup attempt for username={}, email={}",
+                                signupRequest.username(),
+                                signupRequest.email());
 
-            ResponseEntity<UserDto> response =
-                    userClient.add(
-                            new UserDto(
-                                    savedAuth.getUser_id(),
-                                    signupRequest.email(),
-                                    signupRequest.fullName(),
-                                    null
-                            )
-                    );
+                if (authRepository.findByUsername(signupRequest.username()).isPresent()) {
 
-            if (!response.getStatusCode().is2xxSuccessful()) {
+                        log.warn("Signup failed. Username already exists: {}",
+                                        signupRequest.username());
 
-                log.error("User-service failed during signup. status={}",
-                        response.getStatusCode());
+                        throw new UserAlreadyExistsException("Username already exists");
+                }
 
-                throw new UserCreationException(
-                        "User service failed during signup", null);
-            }
+                try {
 
-            log.info("User-service record created successfully. userId={}",
-                    savedAuth.getUser_id());
+                        Auth auth = new Auth(
+                                        signupRequest.username(),
+                                        passwordEncoder.encode(signupRequest.password()));
 
-            String token = jwtUtil.generateToken(savedAuth);
+                        Auth savedAuth = authRepository.save(auth);
 
-            log.info("Signup successful. userId={}", savedAuth.getUser_id());
+                        ResponseEntity<UserDto> response = userClient.add(
+                                        new UserDto(
+                                                        savedAuth.getUser_id(),
+                                                        signupRequest.email(),
+                                                        signupRequest.fullName(),
+                                                        null));
 
-            return new LoginResponse(
-                    token,
-                    savedAuth.getUser_id().toString()
-            );
+                        if (!response.getStatusCode().is2xxSuccessful()) {
 
-        } catch (FeignException ex) {
+                                log.error("User-service failed during signup. status={}",
+                                                response.getStatusCode());
 
-            log.error("User-service communication error during signup.",
-                    ex);
+                                throw new UserCreationException(
+                                                "User service failed during signup", null);
+                        }
 
-            throw new UserCreationException(
-                    "User service communication failed", ex);
+                        log.info("User-service record created successfully. userId={}",
+                                        savedAuth.getUser_id());
 
-        } catch (Exception ex) {
+                        String token = jwtUtil.generateToken(savedAuth);
 
-            log.error("Unexpected error during signup. username={}",
-                    signupRequest.username(), ex);
+                        log.info("Signup successful. userId={}", savedAuth.getUser_id());
 
-            throw new UserCreationException(
-                    "Signup failed due to internal error", ex);
+                        return new LoginResponse(
+                                        token,
+                                        savedAuth.getUser_id().toString(),
+                                        response.getBody());
+
+                } catch (FeignException ex) {
+
+                        log.error("User-service communication error during signup.",
+                                        ex);
+
+                        throw new UserCreationException(
+                                        "User service communication failed", ex);
+
+                } catch (Exception ex) {
+
+                        log.error("Unexpected error during signup. username={}",
+                                        signupRequest.username(), ex);
+
+                        throw new UserCreationException(
+                                        "Signup failed due to internal error", ex);
+                }
         }
-    }
 }
