@@ -56,7 +56,7 @@ public class AuthService {
 
                         log.info("Login successful. userId={}", user.getUser_id());
 
-                        ResponseEntity<UserDto> response = userClient.getUser(user.getUser_id().toString());
+                        ResponseEntity<UserDto> response = userClient.getUserById(user.getUser_id().toString());
 
                         if (!response.getStatusCode().is2xxSuccessful()) {
                                 log.error("User-service failed to fetch user details. status={}",
