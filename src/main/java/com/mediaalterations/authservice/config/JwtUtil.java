@@ -17,21 +17,22 @@ public class JwtUtil {
     @Value("${jwt.secret.key}")
     private String secretKey;
 
-    private SecretKey getSecretKey(){
+    private SecretKey getSecretKey() {
         return Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
     }
-    public String generateToken(Auth user){
+
+    public String generateToken(Auth user) {
         return Jwts.builder()
                 .subject(user.getUsername())
-                .claims(Map.of("username",user.getUsername(),
-                        "userId",user.getUser_id().toString()))
+                .claims(Map.of("username", user.getUsername(),
+                        "userId", user.getUserId().toString()))
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 1000*60*10))
+                .expiration(new Date(System.currentTimeMillis() + 1000 * 60 * 10))
                 .signWith(getSecretKey())
                 .compact();
     }
 
-    public boolean isValid(String token){
+    public boolean isValid(String token) {
         return Jwts.parser()
                 .verifyWith(getSecretKey())
                 .build()

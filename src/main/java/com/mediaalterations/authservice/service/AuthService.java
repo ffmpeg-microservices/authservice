@@ -54,9 +54,9 @@ public class AuthService {
 
                         String token = jwtUtil.generateToken(user);
 
-                        log.info("Login successful. userId={}", user.getUser_id());
+                        log.info("Login successful. userId={}", user.getUserId());
 
-                        ResponseEntity<UserDto> response = userClient.getUserById(user.getUser_id().toString());
+                        ResponseEntity<UserDto> response = userClient.getUserById(user.getUserId().toString());
 
                         if (!response.getStatusCode().is2xxSuccessful()) {
                                 log.error("User-service failed to fetch user details. status={}",
@@ -68,7 +68,7 @@ public class AuthService {
 
                         return new LoginResponse(
                                         token,
-                                        user.getUser_id().toString(), response.getBody());
+                                        user.getUserId().toString(), response.getBody());
 
                 } catch (BadCredentialsException ex) {
 
@@ -122,12 +122,15 @@ public class AuthService {
                         // user-service call
                         Auth savedAuth = authRepository.saveAndFlush(auth);
 
-                        ResponseEntity<UserDto> response = userClient.add(
-                                        new UserDto(
-                                                        savedAuth.getUser_id(),
-                                                        signupRequest.email(),
-                                                        signupRequest.fullName(),
-                                                        null));
+                        log.info("Auth record created successfully. userId={}", savedAuth.getUserId());
+                        log.info("Auth Object", savedAuth);
+                        UserDto dto = new UserDto(
+                                        savedAuth.getUserId(),
+                                        signupRequest.email(),
+                                        signupRequest.fullName(),
+                                        savedAuth.getCreatedAt());
+                        log.info("Constructed UserDto for user-service call: {}", dto);
+                        ResponseEntity<UserDto> response = userClient.add(dto);
 
                         if (!response.getStatusCode().is2xxSuccessful()) {
 
@@ -139,15 +142,15 @@ public class AuthService {
                         }
 
                         log.info("User-service record created successfully. userId={}",
-                                        savedAuth.getUser_id());
+                                        savedAuth.getUserId());
 
                         String token = jwtUtil.generateToken(savedAuth);
 
-                        log.info("Signup successful. userId={}", savedAuth.getUser_id());
+                        log.info("Signup successful. userId={}", savedAuth.getUserId());
 
                         return new LoginResponse(
                                         token,
-                                        savedAuth.getUser_id().toString(),
+                                        savedAuth.getUserId().toString(),
                                         response.getBody());
 
                 } catch (FeignException ex) {
