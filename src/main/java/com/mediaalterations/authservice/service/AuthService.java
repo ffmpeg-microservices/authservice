@@ -108,7 +108,16 @@ public class AuthService {
                         throw new UserCreationException(
                                         "User service communication failed", ex);
 
-                } catch (Exception ex) {
+                } catch (UserAlreadyLoggedInException ex) {
+
+                        log.warn("Login attempt for already active user. username={}",
+                                        loginRequest.username());
+
+                        throw ex;
+
+                }
+
+                catch (Exception ex) {
 
                         log.error("Unexpected authentication error for username={} error:{}",
                                         loginRequest.username(), ex.getMessage(), ex);
