@@ -226,8 +226,12 @@ public class AuthService {
 
         public ResponseEntity<String> logout(String sessionId, HttpServletResponse response) {
 
+                log.info("Logout api called for sessionId : {}", sessionId);
+
                 // clear user session
                 String deletedUserId = redisService.delete("session:" + sessionId);
+
+                log.info("Session deleted from redis. Deleted user id : {}", deletedUserId);
 
                 if (deletedUserId == null)
                         log.info("User session didn't exist");
@@ -248,9 +252,12 @@ public class AuthService {
 
         public ResponseEntity<String> refresh(String sessionId, HttpServletResponse response) {
 
-                // check if stored sessionId matches the cookie sessionId
+                log.info("Getting userId from session: {}", sessionId);
+
                 String userId = redisService.get("session:" + sessionId,
                                 String.class);
+
+                log.info("Got User Id: {}", userId);
                 // rotate the sessionId
                 generateSessionIdSaveInRedisAndSetCookie(userId, response);
 
