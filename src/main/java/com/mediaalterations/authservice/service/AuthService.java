@@ -3,12 +3,16 @@ package com.mediaalterations.authservice.service;
 import com.mediaalterations.authservice.config.JwtUtil;
 import com.mediaalterations.authservice.dto.LoginRequest;
 import com.mediaalterations.authservice.dto.LoginResponse;
+import com.mediaalterations.authservice.dto.RedisSessionDetails;
 import com.mediaalterations.authservice.dto.SignupRequest;
 import com.mediaalterations.authservice.dto.UserDto;
 import com.mediaalterations.authservice.entity.Auth;
 import com.mediaalterations.authservice.exception.AuthenticationFailedException;
+import com.mediaalterations.authservice.exception.SessionExpiredException;
 import com.mediaalterations.authservice.exception.UserAlreadyExistsException;
+import com.mediaalterations.authservice.exception.UserAlreadyLoggedInException;
 import com.mediaalterations.authservice.exception.UserCreationException;
+import com.mediaalterations.authservice.exception.UserNotFoundException;
 import com.mediaalterations.authservice.feignClients.UserClient;
 import com.mediaalterations.authservice.repository.AuthRepository;
 import feign.FeignException;
@@ -16,12 +20,19 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import java.time.Duration;
+import java.util.UUID;
+
 import org.springframework.boot.security.autoconfigure.SecurityProperties.User;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,10 +47,11 @@ public class AuthService {
         private final JwtUtil jwtUtil;
         private final PasswordEncoder passwordEncoder;
         private final UserClient userClient;
+        private final RedisService redisService;
 
         // ========================= LOGIN =========================
 
-        public LoginResponse login(LoginRequest loginRequest) {
+        public LoginResponse login(LoginRequest loginRequest, HttpServletResponse httpResponse) {
 
                 log.info("Login attempt for username={}", loginRequest.username());
 
@@ -65,6 +77,17 @@ public class AuthService {
                                 throw new AuthenticationFailedException(
                                                 "User service failed to fetch user details");
                         }
+                        // check if user is already logged in
+                        RedisSessionDetails redisSessionDetails = redisService.get("user:" + user.getUserId(),
+                                        RedisSessionDetails.class);
+                        if (redisSessionDetails != null) {
+                                throw new UserAlreadyLoggedInException(
+                                                "User is already active in another session "
+                                                                + redisSessionDetails.getIpAddress(),
+                                                HttpStatus.UNAUTHORIZED.value());
+                        }
+
+                        generateSessionIdSaveInRedisAndSetCookie(user.getUserId().toString(), httpResponse);
 
                         return new LoginResponse(
                                         token,
@@ -97,7 +120,7 @@ public class AuthService {
         // ========================= SIGNUP =========================
 
         @Transactional
-        public LoginResponse signup(SignupRequest signupRequest) {
+        public LoginResponse signup(SignupRequest signupRequest, HttpServletResponse httpResponse) {
 
                 log.info("Signup attempt for username={}, email={}",
                                 signupRequest.username(),
@@ -146,6 +169,8 @@ public class AuthService {
 
                         log.info("Signup successful. userId={}", savedAuth.getUserId());
 
+                        generateSessionIdSaveInRedisAndSetCookie(savedAuth.getUserId().toString(), httpResponse);
+
                         return new LoginResponse(
                                         token,
                                         savedAuth.getUserId().toString(),
@@ -166,6 +191,65 @@ public class AuthService {
 
                         throw new UserCreationException(
                                         "Signup failed due to internal error", ex);
+                }
+        }
+
+        private void generateSessionIdSaveInRedisAndSetCookie(String userId, HttpServletResponse httpResponse) {
+                // generate refresh token/ sessionId
+                String sessionId = UUID.randomUUID().toString();
+
+                // save in redis
+                redisService.set("user:" + userId, new RedisSessionDetails(sessionId, null), 2L);
+
+                // send sessionId in Http Safe cookie
+                ResponseCookie refreshCookie = ResponseCookie.from("session", sessionId)
+                                .httpOnly(false)// true in prod
+                                .secure(true)
+                                .path("/auth/refresh")
+                                .maxAge(Duration.ofHours(2))
+                                .sameSite("Strict")
+                                .build();
+
+                httpResponse.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+        }
+
+        public ResponseEntity<String> logout(String userId, HttpServletResponse response) {
+
+                // clear user session
+                String deleted = redisService.delete("user:" + userId);
+                if (deleted == null)
+                        log.info("User session didn't exist");
+
+                ResponseCookie deleteCookie = ResponseCookie.from("session", "")
+                                .httpOnly(true)
+                                .secure(true)
+                                .path("/auth/refresh")
+                                .maxAge(0)
+                                .build();
+
+                response.addHeader(HttpHeaders.SET_COOKIE, deleteCookie.toString());
+
+                return ResponseEntity.ok("User logged out successfully");
+        }
+
+        public ResponseEntity<String> refresh(String userId, String sessionId, HttpServletResponse response) {
+
+                var user = authRepository.findById(UUID.fromString(userId)).orElseThrow(
+                                () -> new UserNotFoundException("User not found"));
+
+                // check if stored sessionId matches the cookie sessionId
+                RedisSessionDetails sessionDetails = redisService.get("user:" + userId,
+                                RedisSessionDetails.class);
+                if (sessionDetails.getSessionId().equals(sessionId)) {
+                        // rotate the sessionId
+                        generateSessionIdSaveInRedisAndSetCookie(userId, response);
+
+                        // send refreshed jwt in reponse
+                        String token = jwtUtil.generateToken(user);
+                        return ResponseEntity.ok(token);
+                } else {
+                        throw new SessionExpiredException("Session Expired. Login again",
+                                        HttpStatus.UNAUTHORIZED.value());
                 }
         }
 
