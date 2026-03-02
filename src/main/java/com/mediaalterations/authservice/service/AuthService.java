@@ -214,9 +214,9 @@ public class AuthService {
                 redisService.set("session:" + sessionId, userId, 2L);
                 // send sessionId in Http Safe cookie
                 ResponseCookie refreshCookie = ResponseCookie.from("session", sessionId)
-                                .httpOnly(false)// true in prod
+                                .httpOnly(true)
                                 .secure(true)
-                                .path("/auth/refresh")
+                                .path("/auth")
                                 .maxAge(Duration.ofHours(2))
                                 .sameSite("Strict")
                                 .build();
@@ -224,20 +224,20 @@ public class AuthService {
                 httpResponse.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
         }
 
-        public ResponseEntity<String> logout(String userId, HttpServletResponse response) {
+        public ResponseEntity<String> logout(String sessionId, HttpServletResponse response) {
 
                 // clear user session
-                String deletedUserSessionId = redisService.delete("user:" + userId);
+                String deletedUserId = redisService.delete("session:" + sessionId);
 
-                if (deletedUserSessionId == null)
+                if (deletedUserId == null)
                         log.info("User session didn't exist");
 
-                String deletedUserId = redisService.delete("session:" + deletedUserSessionId);
+                String deletedUserSessionId = redisService.delete("user:" + deletedUserId);
 
                 ResponseCookie deleteCookie = ResponseCookie.from("session", "")
                                 .httpOnly(true)
                                 .secure(true)
-                                .path("/auth/refresh")
+                                .path("/auth")
                                 .maxAge(0)
                                 .build();
 

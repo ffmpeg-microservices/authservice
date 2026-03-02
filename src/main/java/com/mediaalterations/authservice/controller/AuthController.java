@@ -34,8 +34,8 @@ public class AuthController {
     }
 
     @GetMapping("/logout")
-    public ResponseEntity<String> logout(@RequestHeader("user_id") String userId, HttpServletResponse response) {
-        return authService.logout(userId, response);
+    public ResponseEntity<String> logout(@CookieValue("session") String sessionId, HttpServletResponse response) {
+        return authService.logout(sessionId, response);
     }
 
     @PostMapping("/refresh")
