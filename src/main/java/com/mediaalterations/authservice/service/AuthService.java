@@ -110,8 +110,8 @@ public class AuthService {
 
                 } catch (Exception ex) {
 
-                        log.error("Unexpected authentication error for username={}",
-                                        loginRequest.username(), ex);
+                        log.error("Unexpected authentication error for username={} error:{}",
+                                        loginRequest.username(), ex.getMessage(), ex);
 
                         throw new AuthenticationFailedException("Authentication failed");
                 }
@@ -197,7 +197,7 @@ public class AuthService {
         private void generateSessionIdSaveInRedisAndSetCookie(String userId, HttpServletResponse httpResponse) {
                 // generate refresh token/ sessionId
                 String sessionId = UUID.randomUUID().toString();
-
+                log.info("Generated sessionId={} for userId={}", sessionId, userId);
                 // save in redis
                 redisService.set("user:" + userId, new RedisSessionDetails(sessionId, null), 2L);
 
