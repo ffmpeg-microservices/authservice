@@ -39,10 +39,10 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<String> refresh(@RequestHeader("user_id") String userId,
+    public ResponseEntity<String> refresh(
             @CookieValue("session") String sessionId,
             HttpServletResponse response) {
         // here sessionId==refresh token
-        return authService.refresh(userId, sessionId, response);
+        return authService.refresh(sessionId, response);
     }
 }
